@@ -561,43 +561,68 @@ void main(){
 
     const textGrp = new THREE.Group();
     scene.add(textGrp);
-    let font = null, pIdx = 0;
+    let pIdx = 0;
+
+    // Crea una textura canvas con el texto y la pone en un plano 3D
+    // Soporta Ñ, tildes y cualquier carácter Unicode
+    function makeTextPlane(text, opts = {}) {
+      const {
+        fontSize = 120, fontFace = 'bold italic Georgia, serif',
+        fillColor = '#ff88cc', glowColor = '#ff1493',
+        canvasW = 1024, canvasH = 200
+      } = opts;
+      const cv = document.createElement('canvas');
+      cv.width = canvasW; cv.height = canvasH;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, canvasW, canvasH);
+      ctx.font = `${fontSize}px ${fontFace}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      // glow externo
+      ctx.shadowColor = glowColor; ctx.shadowBlur = 30;
+      ctx.fillStyle = glowColor;
+      ctx.fillText(text, canvasW / 2, canvasH / 2);
+      // texto principal
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = fillColor;
+      ctx.fillText(text, canvasW / 2, canvasH / 2);
+      const tex = new THREE.CanvasTexture(cv);
+      const aspect = canvasW / canvasH;
+      const planeH = 1.6;
+      const geo = new THREE.PlaneGeometry(planeH * aspect, planeH);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      return new THREE.Mesh(geo, mat);
+    }
 
     function buildText(lines) {
       while (textGrp.children.length) {
-        const c = textGrp.children[0]; c.geometry?.dispose(); c.material?.dispose(); textGrp.remove(c);
+        const c = textGrp.children[0];
+        c.material?.map?.dispose(); c.geometry?.dispose(); c.material?.dispose();
+        textGrp.remove(c);
       }
-      if (!font) return;
-      const lh = lines.length > 1 ? 1.85 : 0, sz = lines.length > 1 ? 1.08 : 1.42;
+      const lh = lines.length > 1 ? 1.8 : 0;
       lines.forEach((line, i) => {
         const y = (lines.length - 1) * lh / 2 - i * lh;
-        // main text — emissive for bloom
-        const gm = new TextGeometry(line, {
-          font, size: sz, height: .38, curveSegments: 12,
-          bevelEnabled: true, bevelThickness: .045, bevelSize: .03, bevelSegments: 5
+        const fontSize = lines.length > 1 ? 110 : 130;
+        // plano principal
+        const mesh = makeTextPlane(line, { fontSize });
+        mesh.position.set(0, y, 0);
+        textGrp.add(mesh);
+        // halo de bloom más grande y tenue
+        const halo = makeTextPlane(line, {
+          fontSize: fontSize + 20, fillColor: '#ff69b4',
+          glowColor: '#ff1493', canvasW: 1100, canvasH: 220
         });
-        gm.center();
-        const mMain = new THREE.Mesh(gm, new THREE.MeshStandardMaterial({
-          color: 0xff88cc, emissive: 0xff1493, emissiveIntensity: 0.35,
-          metalness: .85, roughness: .12
-        }));
-        mMain.position.set(0, y, 0);
-        textGrp.add(mMain);
-        // glow halo
-        const gg = new TextGeometry(line, { font, size: sz * 1.08, height: .08, curveSegments: 8, bevelEnabled: false });
-        gg.center();
-        const mGlow = new THREE.Mesh(gg, new THREE.MeshBasicMaterial({
-          color: 0xff69b4, transparent: true, opacity: .1, blending: THREE.AdditiveBlending, depthWrite: false
-        }));
-        mGlow.position.set(0, y, -.3);
-        textGrp.add(mGlow);
+        halo.material.opacity = 0.18;
+        halo.position.set(0, y, -0.05);
+        textGrp.add(halo);
       });
     }
 
-    new FontLoader().load(
-      'https://threejs.org/examples/fonts/helvetiker_bold.typeface.json',
-      f => { font = f; buildText(P3D[0]); }
-    );
+    // Construir texto inicial de inmediato (no necesita cargar fuente)
+    buildText(P3D[0]);
 
     // ═══════════════════════════════════════════════════════════════
     // WEB-AUDIO ROMANTIC MUSIC
